@@ -1,0 +1,37 @@
+# Effective refinement parameters
+# Date 2021-04-13 Time 10:09:41 CEST +0200 (1618301381.92 s)
+# Command to extract only non-defaults:
+#   phenix.refine --diff_params 
+
+refinement {
+  refine {
+    strategy = *individual_sites individual_sites_real_space rigid_body \
+               *individual_adp group_adp tls *occupancies group_anomalous
+    sites {
+      individual = None
+      torsion_angles = None
+      rigid_body = None
+    }
+    adp {
+      individual {
+        isotropic = None
+        anisotropic = None
+      }
+      group_adp_refinement_mode = *one_adp_group_per_residue \
+                                  two_adp_groups_per_residue group_selection
+      group = None
+      tls = None
+    }
+    occupancies {
+      individual = resname DOG
+      remove_selection = None
+      constrained_group {
+        selection = None
+      }
+    }
+  }
+  main {
+    number_of_macro_cycles = 10
+    
+  }
+}
