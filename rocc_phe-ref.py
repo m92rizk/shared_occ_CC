@@ -16,20 +16,43 @@ mydir = os.popen("pwd").read().strip()
 
 parser = OptionParser()
 parser.add_option("-l", "--ligand", dest="lig", help="the 3 letters name of the residue")
-parser.add_option("-p", "--model", dest="pdb", help="the pdb file, {model.pdb}")
+parser.add_option("-p", "--pdb", dest="pdb", help="the pdb file, {model.pdb}")
 parser.add_option("-c", "--cif", dest="cif", help="the cif file")
 parser.add_option("-n", "--ncyc", dest="n", default=5)
 parser.add_option("-o", "--ncyc_occ", dest="occn", default=10, help="number of occupancy cycles")
 parser.add_option("-d", "--directory", dest="directory", default=".", help="leaving this empty will take current directory")
-parser.add_option("-f", "--hkl", dest="hkl", default="", help="the reflection hkl file, by default {merged.hkl}")
+parser.add_option("-f", "--hkl", dest="hkl", default="", help="the reflection hkl file")
+#parser.add_option("", "--hkl_pattern", dest="hkl_pattern", default="", help="the reflection hkl file name pattern, by default {merged.hkl}")
 parser.add_option("-m", "--mtz", dest="mtz", default="junk_xdsconv.mtz", help="mtz file {MTZfile.mtz}")
+#parser.add_option("", "--mtz_pattern", dest="mtz_pattern", default="junk_xdsconv.mtz", help="mtz file name pattern")
+parser.add_option("", "--output_result", dest="output_result")
+parser.add_option("", "--output_dir", dest="output_dir")
 parser.add_option("", "--phenix", action="store_true", dest="phenix", default=False)
 parser.add_option("", "--refmac", action="store_true", dest="refmac", default=False)
 parser.add_option("", "--slurm", action="store_true", dest="slurm", default=False)
 parser.add_option("", "--overwrite", action="store_true", dest="overwrite", default=False)
+parser.add_option("", "--fast", action="store_true", dest="fast", default=False)
 
 (options, args) = parser.parse_args()
 
+if options.slurm:
+    arguments = []
+    arg_length = len(sys.argv)
+    for x in range(0, arg_length):
+        if sys.argv[x] != "--slurm":
+            arguments.append(sys.argv[x])
+    command_line = ' '.join(map(str, arguments))
+    print("running this: sbatch "+str(command_line))
+    os.system("sbatch  "+command_line)
+    quit()
+
+
+if options.fast:
+    occupancies = [5]
+else:
+    occupancies = [1,5,9]
+    
+output_dir = options.output_dir
 if options.refmac and options.phenix:
     print("either refmac or phenix at a time, quitting")
     quit()
@@ -50,17 +73,30 @@ if options.cif:
     cif = ' libin '+str(cifpath)
 else:
     cif = " "
+    cifpath = " "
 if str(options.hkl) != "" :
     hkl="-f "+str(options.hkl)
 else:
     hkl=""
 jobid = os.getenv('SLURM_ARRAY_TASK_ID')
-print ("\n\nTHE JOBID IS: "+str(jobid)+" \n\n")
-if jobid == None:
-    quit()
+if options.slurm:
+    print ("\n\nTHE JOBID IS: "+str(jobid)+" \n\n")
+    if jobid == None:
+        quit()
 
 pdb = options.pdb    
 pdbname = Path(pdb).stem
+
+    
+if options.hkl:
+    hkl = options.hkl
+else:
+    hkl = ""
+
+MTZ = options.mtz
+if hkl == "" and MTZ == "junk_xdsconv.mtz":
+    print("neither a mtz nor a hkl is provided, quitting")
+    quit()
 
 file = open(pdb)
 for line in file:
@@ -69,12 +105,12 @@ for line in file:
         ch=line[21]
         break
 
-def modify_occ(occ):
+def modify_occ(jobid, occ):
     with open('f_'+str(jobid)+'.eff', 'w') as outeff:
         outeff.write('modify {\noccupancies {\n\tatom_selection=resname '+str(LIG)+'\n\tset='+str(occ)+'\n}\n}\noutput {\n\tsuffix = "_modified_'+str(jobid)+'"\n}')
-    os.system('phenix.pdbtools '+str(pdb)+' f_'+str(jobid)+'.eff ')
+    os.system('phenix.pdbtools '+str(pdb)+' f_'+str(jobid)+'.eff | grep "Setting occupancies to"')
     print("Changed occupancy to "+str(occ))
-def get_best_occ(occ):
+def get_best_occ(occ,output_dir):
     OCC=[]
     print("Done refining, xyzout: "+str(LIG)+"_"+str(ref_sof)+"_"+str(occ)+".pdb")
     file = open(str(folder)+'/'+str(LIG)+'_'+str(ref_sof)+'_'+str(occ)+'.pdb', "r")
@@ -103,11 +139,20 @@ def get_best_occ(occ):
     for clfile in os.listdir(str(folder)):
         if clfile.startswith('close_'+str(LIG)+'_'+str(ref_sof)+'_'):
             os.remove(str(folder)+'/'+clfile)
+    for clfile in os.listdir(str(output_dir)):
+        if clfile.startswith('close_'+str(LIG)+'_'+str(ref_sof)+'_'):
+            os.remove(str(output_dir)+'/'+clfile)            
     for file in os.listdir(str(folder)):
         if file.endswith(str(cl_occ)+'.mtz'):
             shutil.copyfile(str(folder)+'/'+str(LIG)+'_'+str(ref_sof)+'_'+str(cl_occ)+'.mtz', str(folder)+'/close_'+str(LIG)+'_'+str(ref_sof)+'_'+str(cl_occ)+'.mtz')
         if file.endswith(str(cl_occ)+'.pdb'):
             shutil.copyfile(str(folder)+'/'+str(LIG)+'_'+str(ref_sof)+'_'+str(cl_occ)+'.pdb', str(folder)+'/close_'+str(LIG)+'_'+str(ref_sof)+'_'+str(cl_occ)+'.pdb')
+    try:
+        shutil.copyfile(str(folder)+'/close_'+str(LIG)+'_'+str(ref_sof)+'_'+str(cl_occ)+'.pdb', str(output_dir)+'/close_'+str(LIG)+'_'+str(ref_sof)+'_'+str(cl_occ)+'.pdb')
+        shutil.copyfile(str(folder)+'/close_'+str(LIG)+'_'+str(ref_sof)+'_'+str(cl_occ)+'.mtz', str(output_dir)+'/close_'+str(LIG)+'_'+str(ref_sof)+'_'+str(cl_occ)+'.mtz')
+    except shutil.SameFileError:
+        pass
+        
     data[1] = 'Final average occupancy (more accurate): '+str(acc_occ)+'\n'
     with open(details_output, 'w') as file:
         file.writelines( data )
@@ -121,7 +166,7 @@ def get_best_occ(occ):
         lst.append(str(folder_name)+'\t\t'+str(acc_occ)+'\n')
     with open(occlist, 'w') as outlist:
         outlist.writelines( lst )
-def refmac_refine(folder, jobid):
+def refmac_refine(folder, output_dir, jobid, occ):
     os.system('refmac5 \
     hklin '+str(folder)+'/'+str(options.mtz)+' \
     xyzin '+str(pdbname)+'_modified_'+str(jobid)+'.pdb \
@@ -133,15 +178,14 @@ def refmac_refine(folder, jobid):
     occupancy refine ncycle '+str(options.occn)+'\n\
     occupancy refine\n\
     eor')
-def phenix_refine(folder, jobid):
+    #shutil.copyfile(str(folder)+'/'+str(LIG)+'_refmac_'+str(occ)+'.mtz', str(output_dir)+'/'+str(LIG)+'_refmac_'+str(occ)+'.mtz')
+    #shutil.copyfile(str(folder)+'/'+str(LIG)+'_refmac_'+str(occ)+'.pdb', str(output_dir)+'/'+str(LIG)+'_refmac_'+str(occ)+'.pdb')
+def phenix_refine(folder, output_dir, jobid, occ):
     if os.path.isfile('params'+str(LIG)+'.eff') :
         print('params'+str(LIG)+' file already exists')
     else:
-        if not os.path.isfile('params.eff'):
-            print("parameter file is missing for phenix refinement, quitting..")
-            quit
-        os.system('chmod u=rwx,g=r,o=r params'+str(LIG)+'.eff')
-        os.system('sed -i "s/DOG/'+str(LIG)+'/" params'+str(LIG)+'.eff')
+        os.system('phenix.refine --show_defaults=0 > params'+str(LIG)+'.eff')
+        os.system('sed -zi "s/individual = None/individual = resname '+str(LIG)+'/2"/" params'+str(LIG)+'.eff')
     os.system('phenix.refine \
     '+str(folder)+'/'+str(options.mtz)+' \
     '+str(pdbname)+'_modified_'+str(jobid)+'.pdb \
@@ -154,22 +198,17 @@ def phenix_refine(folder, jobid):
     write_model_cif_file=False \
     base_output_dir="folder" \
     --overwrite >> '+str(folder)+'/OUT_phenix_'+str(jobid)+'.log')
-    shutil.copyfile(str(folder)+'/'+str(pdbname)+'_modified_'+str(jobid)+'_refine_001.mtz', str(folder)+'/'+str(LIG)+'_phenix_'+str(occ)+'.mtz')
-    shutil.copyfile(str(folder)+'/'+str(pdbname)+'_modified_'+str(jobid)+'_refine_001.pdb', str(folder)+'/'+str(LIG)+'_phenix_'+str(occ)+'.pdb')
-def refine_occupancy(folder, folder_name, jobid):
+    #shutil.copyfile(str(folder)+'/'+str(pdbname)+'_modified_'+str(jobid)+'_refine_001.mtz', str(output_dir)+'/'+str(LIG)+'_phenix_'+str(occ)+'.mtz')
+    #shutil.copyfile(str(folder)+'/'+str(pdbname)+'_modified_'+str(jobid)+'_refine_001.pdb', str(output_dir)+'/'+str(LIG)+'_phenix_'+str(occ)+'.pdb')
+def refine_occupancy(folder, folder_name, output_dir):
     OCC = []
-    global occ
-    occ = "0."+str(jobid)  #parallelisation
-    
-
     if options.overwrite:
         try:
-            print('overwriting '+str(folder)+'/'+str(options.mtz)+' ..')
-            os.remove(str(folder)+'/'+str(options.mtz))
+            print('overwriting '+str(folder)+'/junk_xdsconv.mtz'+' ..')
+            os.remove(str(folder)+'/junk_xdsconv.mtz')
         except FileNotFoundError:
             pass
-
-    if os.path.isfile(str(folder)+'/'+str(options.mtz)):
+    if os.path.isfile(str(folder)+'/'+str(MTZ)):
         print('mtz file already exists')
     else:    
         try:
@@ -182,36 +221,50 @@ def refine_occupancy(folder, folder_name, jobid):
     
     if options.slurm:
         occ = "0."+str(jobid)
-        modify_occ(jobid)
+        modify_occ(jobid, occ)
         #refmac refinement
         if options.refmac:
-            refmac_refine(folder,jobid)
+            refmac_refine(folder,output_dir,jobid,occ)
         #phenix refinement
         if options.phenix:
-            phenix_refine(folder,jobid)
-        get_best_occ(occ)
+            phenix_refine(folder,output_dir,jobid,occ)
+        get_best_occ(occ,output_dir)
     else:
-        for job in (1,5,9):
+        for job in occupancies:
             occ = "0."+str(job)
-            modify_occ(job)
+            modify_occ(job, occ)
             #refmac refinement
             if options.refmac:
-                refmac_refine(folder,job)
+                refmac_refine(folder,output_dir,job,occ)
             #phenix refinement
             if options.phenix:
-                phenix_refine(folder,job)
-            get_best_occ(occ)
-
+                phenix_refine(folder,output_dir,job,occ)
+        get_best_occ(occ,output_dir)
+    shutil.copy
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
 folder = options.directory
 if folder == "." or folder == "./" :
     folder_name = os.path.basename(os.getcwd()).strip()
 elif folder.endswith('/'):
-    folder_name = folder.strip('/')
+    folder_name = os.path.basename(folder).strip('/')
 else:
     folder_name = os.path.basename(folder)
 
 occlist = 'occ'+str(LIG)+'_list_'+str(folder_name)+'_'+str(ref_sof)+'.txt'
-details_output = str(folder)+'/details_occ_'+str(LIG)+'_'+str(folder_name)+'_'+str(ref_sof)+'.txt'
+if options.output_result:
+    details_output = options.output_result
+else:
+    details_output = str(folder)+'/details_occ_'+str(LIG)+'_'+str(ref_sof)+str(folder_name)+'.txt'
 
 with open(occlist, 'w') as outlist:
    outlist.write('Directory\tOccupancy Refined\n')
@@ -221,11 +274,16 @@ with open(details_output, 'w') as outf:
 
 if folder == "." or folder == "./" or folder.endswith("/"):
     folder = folder.strip('/')
-    refine_occupancy(folder, folder_name)
+    if output_dir:
+        outdir = output_dir
+    else:
+        outdir = mydir
+    refine_occupancy(folder, folder_name, outdir)
 else:
     for x in sorted(os.listdir(mydir)):
         if x.startswith(str(folder)):
+            xdir = mydir+'/'+x
             with open(details_output, 'a') as outf:
                 outf.write('*** Working Dir: '+str(x)+' ***\n')
-            refine_occupancy(x, folder_name)
+            refine_occupancy(x, folder_name, xdir)
 

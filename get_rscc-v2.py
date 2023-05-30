@@ -22,11 +22,10 @@ else:
     lig = options.lig
 LIG = lig.upper()
 
-if options.pdb is None:
-    pdb = input ("Enter pdb: ")
-else:
+if options.pdb:
     pdb = options.pdb    
-pdbname = Path(pdb).stem
+    pdbname = Path(pdb).stem
+
 mtz = options.mtz
 folder = options.directory
 if folder == "." or folder == "./" :
@@ -34,18 +33,19 @@ if folder == "." or folder == "./" :
     here = True
 else:
     here = False
-    folder_name = os.path.basename(folder)
-    if folder_name.endswith('/'):
-        folder_name = folder_name.strip('/')
-
+    folder_stripped = folder
+    if folder.endswith('/'):
+        folder_stripped = folder.strip('/')
+    folder_name = os.path.basename(folder_stripped)
+    
 def rscc(folder,folder_name,clpdb,clmtz):
     print('Calculating real space correlation coefficient of '+str(LIG)+' in '+str(folder)+'/'+str(clpdb))
-    os.system('phenix.real_space_correlation '+str(folder)+'/'+str(clpdb)+' '+str(folder)+'/'+str(clmtz)+' detail=residue > '+str(folder)+'/RSCC_'+str(pdbname)+'_'+str(LIG)+'_'+str(folder_name)+'.txt')
-    file = open(str(folder)+'/RSCC_'+str(pdbname)+'_'+str(LIG)+'_'+str(folder_name)+'.txt', "r")
+    os.system('phenix.real_space_correlation '+str(folder)+'/'+str(clpdb)+' '+str(folder)+'/'+str(clmtz)+' detail=residue > '+str(folder)+'/RSCC_'+str(LIG)+'_'+str(folder_name)+'.txt')
+    file = open(str(folder)+'/RSCC_'+str(LIG)+'_'+str(folder_name)+'.txt', "r")
     for line in file:
         if (re.search(str(LIG), line[5:8])):
             rscc = line[30:36]
-            print ('The RSCC of '+str(LIG)+' in '+str(pdbname)+' is: '+rscc)
+            print ('The RSCC of '+str(LIG)+' in '+str(clpdb)+' is: '+rscc)
 
 
 if here:
@@ -58,19 +58,19 @@ if here:
                 if file.endswith('.pdb'):
                     clpdb = file
                 if file.endswith('.mtz'):
-                    clmtz = file    
+                    clmtz = file        
     rscc('.', folder_name, clpdb, clmtz)
 else:
     for malaf in os.listdir(mydir):        # will look for pdb and mtz in each folder starting with the given directory
         if malaf.startswith(folder_name):
-            for file in os.listdir(malaf):
-                if mtz:    # will look for pdb and mtz as given, like pattern
+            for file in os.listdir(mydir+"/"+malaf):
+                if options.mtz:    # will look for pdb and mtz as given, like pattern
                     if file.startswith(pdb) and file.endswith('.pdb'):
                         clpdb = file
                     if file.startswith(mtz) and file.endswith('.mtz'):
                         clmtz = file
                 else:     # will look for the output of rocc_phe-ref.py in each folder
-                    if file.startswith('close_'+str(LIG)+'_'+str(ref_sof)+'_'):
+                    if file.startswith('close_'+str(LIG)+'_'+str(ref_sof)):
                         if file.endswith('.pdb'):
                             clpdb = file
                         if file.endswith('.mtz'):
